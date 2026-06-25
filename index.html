@@ -32,6 +32,16 @@
   .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #9c7430;}
   .keys{color:#bda988;font-size:13px;}
   .keys kbd{background:#3a2c1e;border:1px solid #ffffff22;border-bottom-width:3px;border-radius:6px;padding:2px 8px;margin:0 2px;color:#fff7ec;}
+  .diorama{position:relative;width:340px;height:64px;margin:2px 0;}
+  .diorama span{position:absolute;top:12px;font-size:36px;}
+  .d-house{left:10px;}
+  .d-mom{left:78px;animation:walkout 5s ease-in infinite;}
+  .d-dad{left:106px;animation:walkout 5s ease-in infinite .2s;}
+  .d-car{left:140px;animation:driveoff 5s ease-in infinite;}
+  .d-elvis{left:22px;top:14px;opacity:0;animation:appear 5s infinite;}
+  @keyframes walkout{0%,8%{transform:translateX(0);opacity:1}55%{opacity:1}75%,100%{transform:translateX(220px);opacity:0}}
+  @keyframes driveoff{0%,45%{transform:translateX(0);opacity:1}95%,100%{transform:translateX(320px);opacity:0}}
+  @keyframes appear{0%,60%{opacity:0;transform:scale(.5)}78%{opacity:1;transform:scale(1.05)}88%,100%{opacity:1;transform:scale(1)}}
 </style>
 </head>
 <body>
@@ -46,16 +56,22 @@
 </div>
 
 <div class="overlay" id="startScreen">
-  <div class="tag">A Husky's-Eye Escape Game</div>
+  <div class="tag">Chapter One: Home Alone</div>
   <h1>Elvis FPV 🐺🎥</h1>
-  <p>A GoPro is strapped behind <b>Elvis</b>, a pure-white Siberian husky. The humans left and shut you in.
-     Tear around the house, flip the three switches, shove the crate onto the green pad, and bolt out the front door.</p>
-  <button class="btn" id="playBtn">Click to play ▸</button>
-  <div class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> run · <kbd>Mouse</kbd> look · <kbd>E</kbd> interact · arrows also look</div>
+  <div class="diorama" id="diorama">
+    <span class="d-house">🏠</span>
+    <span class="d-mom">👩</span><span class="d-dad">👨</span><span class="d-car">🚗</span>
+    <span class="d-elvis">🐺</span>
+  </div>
+  <p>The keys jingle. The front door clicks. You watch Mom and Dad pull out of the driveway and disappear down the street.
+     A whole day. Alone. Again. Fine. If they want to leave you behind, you will find your own way out.
+     And maybe leave a few little surprises on the carpet first.</p>
+  <button class="btn" id="playBtn">Let me out! ▸</button>
+  <div class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> run · <kbd>Mouse</kbd> look · <kbd>E</kbd> interact · <kbd>Q</kbd> poop · <kbd>F</kbd> pee</div>
 </div>
 
 <div class="overlay hidden" id="winScreen">
-  <div class="tag">Free!</div>
+  <div class="tag">Chapter Two: Freedom</div>
   <h1>Elvis Escaped! 🐺</h1>
   <p id="win-sub">Good boy. The whole yard is yours.</p>
   <button class="btn" id="againBtn">Run it again ▸</button>
@@ -263,33 +279,52 @@ const matFurShadow=new THREE.MeshStandardMaterial({color:0xd9dee6,roughness:1,fl
 const matInner=new THREE.MeshStandardMaterial({color:0xe7a3b0,roughness:0.85,side:THREE.DoubleSide});
 const matNose=new THREE.MeshStandardMaterial({color:0x1a1a1f,roughness:0.25});
 const matTongue=new THREE.MeshStandardMaterial({color:0xef9aa6,roughness:0.7,side:THREE.DoubleSide});
+function jitter(geo,amt){ const p=geo.attributes.position; for(let i=0;i<p.count;i++){
+  p.setX(i,p.getX(i)+(hash11(i*1.7+amt*11)-0.5)*amt);
+  p.setY(i,p.getY(i)+(hash11(i*2.3+amt*23)-0.5)*amt);
+  p.setZ(i,p.getZ(i)+(hash11(i*3.1+amt*37)-0.5)*amt); } geo.computeVertexNormals(); }
+const EAR_OUT=0.34;
 function makeEar(seed){
   const ear=new THREE.Group();
-  const g=new THREE.ConeGeometry(0.08,0.27,9,4,true);
+  // SOLID white outer ear: this is the side that faces the camera
+  const g=new THREE.ConeGeometry(0.085,0.3,10);
   const pos=g.attributes.position;
-  for(let i=0;i<pos.count;i++){
-    const j=hash11(seed*31.7+i)-0.5, k=hash11(seed*17.3+i*2.1)-0.5, y=pos.getY(i), taper=(y+0.135)/0.27;
-    pos.setX(i,pos.getX(i)+j*0.032*taper); pos.setZ(i,pos.getZ(i)+k*0.032*taper); pos.setY(i,y+(hash11(seed+i*5)-0.5)*0.02);
-  }
+  for(let i=0;i<pos.count;i++){ const y=pos.getY(i), taper=(y+0.15)/0.3;
+    pos.setX(i,pos.getX(i)+(hash11(seed*31.7+i)-0.5)*0.038*taper);
+    pos.setZ(i,pos.getZ(i)+(hash11(seed*17.3+i*2.1)-0.5)*0.038*taper); }
   g.computeVertexNormals();
-  ear.add(new THREE.Mesh(g,matFur));
-  const sh=new THREE.Mesh(new THREE.ConeGeometry(0.075,0.25,7),matFurShadow); sh.position.z=-0.03; sh.scale.set(0.85,0.95,0.4); ear.add(sh);
-  const inner=new THREE.Mesh(new THREE.ConeGeometry(0.035,0.18,6,1,true),matInner); inner.position.set(0,-0.01,0.05); ear.add(inner);
+  const white=new THREE.Mesh(g,matFur); white.renderOrder=1003; ear.add(white);
+  // pink inner ear on the FORWARD face (away from the camera), tucked behind the white shell
+  const inner=new THREE.Mesh(new THREE.ConeGeometry(0.04,0.16,8), matInner);
+  inner.position.set(0,-0.02,-0.07); inner.renderOrder=1000; ear.add(inner);
   return ear;
 }
 const huskyRig=new THREE.Group(); camera.add(huskyRig);
+
+// fluffy head with a wool crown (sits low, beneath the ears)
+const head=new THREE.Group(); head.position.set(0,-0.44,-0.52); huskyRig.add(head);
+const domeGeo=new THREE.SphereGeometry(0.24,18,14); domeGeo.scale(1.15,0.8,0.95); jitter(domeGeo,0.018);
+head.add(new THREE.Mesh(domeGeo,matFur));
+for(let i=0;i<14;i++){                                      // fluffy wool tufts on the crown
+  const a=(i/14)*Math.PI*2, rr=0.11+hash11(i*5.1)*0.08;
+  const tuft=new THREE.Mesh(new THREE.SphereGeometry(0.055+hash11(i*9.3)*0.04,8,6),matFur);
+  tuft.position.set(Math.cos(a)*rr*1.2, 0.08+hash11(i*2.7)*0.07, 0.06+Math.sin(a)*rr*0.6);
+  head.add(tuft);
+}
+// ears attached to the head top, clearly upright + splayed slightly outward
 const earL=makeEar(1), earR=makeEar(2);
-earL.position.set(-0.17,-0.17,-0.55); earR.position.set(0.17,-0.17,-0.55);
-earL.rotation.set(-0.18,0.1,-0.28); earR.rotation.set(-0.18,-0.1,0.28);
-// snout + nose + tongue
-const snout=new THREE.Group(); snout.position.set(0,-0.5,-0.52); snout.rotation.x=0.35;
-const muzzleGeo=new THREE.SphereGeometry(0.17,14,10); muzzleGeo.scale(1,0.62,1.4);
+earL.position.set(-0.14,0.26,0.04); earR.position.set(0.14,0.26,0.04);
+earL.rotation.set(0.04,0,-EAR_OUT); earR.rotation.set(0.04,0,EAR_OUT);
+head.add(earL,earR);
+// snout hint, lower-front
+const snout=new THREE.Group(); snout.position.set(0,-0.04,-0.2); snout.rotation.x=0.45; head.add(snout);
+const muzzleGeo=new THREE.SphereGeometry(0.16,14,10); muzzleGeo.scale(1,0.6,1.5);
 snout.add(new THREE.Mesh(muzzleGeo,matFur));
-const nose=new THREE.Mesh(new THREE.SphereGeometry(0.05,16,12),matNose); nose.scale.set(1.25,0.85,0.9); nose.position.set(0,0.02,0.215); snout.add(nose);
+const nose=new THREE.Mesh(new THREE.SphereGeometry(0.05,16,12),matNose); nose.scale.set(1.25,0.85,0.9); nose.position.set(0,0.0,0.22); snout.add(nose);
 const tShape=new THREE.Shape(); tShape.moveTo(-0.035,0); tShape.quadraticCurveTo(-0.055,-0.11,0,-0.14); tShape.quadraticCurveTo(0.055,-0.11,0.035,0);
-const tongue=new THREE.Mesh(new THREE.ShapeGeometry(tShape),matTongue); tongue.position.set(0,-0.01,0.2); tongue.rotation.x=-0.5; snout.add(tongue);
-huskyRig.add(earL,earR,snout);
-huskyRig.traverse(o=>{ if(o.isMesh){ o.renderOrder=999; o.material.depthTest=false; o.frustumCulled=false; } });
+const tongue=new THREE.Mesh(new THREE.ShapeGeometry(tShape),matTongue); tongue.position.set(0,-0.02,0.2); tongue.rotation.x=-0.5; snout.add(tongue);
+
+huskyRig.traverse(o=>{ if(o.isMesh){ o.material.depthTest=false; o.frustumCulled=false; if(!o.renderOrder) o.renderOrder=1001; } });
 const furFill=new THREE.PointLight(0xfff6ea,0.7,3); furFill.position.set(0,0.3,0.2); camera.add(furFill);
 const bob={phase:0,yawPrev:yaw,yawLag:0};
 
@@ -352,6 +387,8 @@ function resolveCrateAxis(axis){
 const keys={};
 addEventListener('keydown',e=>{ keys[e.code]=true;
   if(e.code==='KeyE') tryInteract();
+  if(e.code==='KeyQ') leaveMess('poop');
+  if(e.code==='KeyF') leaveMess('pee');
   if(e.code==='KeyM') toggleMute();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
 });
@@ -385,8 +422,29 @@ function tryInteract(){
 }
 
 // ============================================================ game state / win
-const state={switchesOn:0, padPressed:false, exitOpen:false, won:false, socks:0};
+const state={switchesOn:0, padPressed:false, exitOpen:false, won:false, socks:0, messes:0};
 let doorOpen=0; // 0..1 animation
+let squat=0;    // brief dip when pooping
+const messMeshes=[]; let lastMess=-1;
+function leaveMess(type){
+  if(!started || state.won) return;
+  const now=performance.now(); if(now-lastMess<420) return; lastMess=now;
+  const x=player.x, z=player.z; let m;
+  if(type==='pee'){
+    m=new THREE.Mesh(new THREE.CircleGeometry(0.34,18).rotateX(-Math.PI/2),
+      new THREE.MeshStandardMaterial({color:0xe6cf3a,transparent:true,opacity:0.72,roughness:0.25,metalness:0.15}));
+    m.position.set(x,0.02,z); sfx.pee(); flash('Marked the floor. 💛');
+  } else {
+    m=new THREE.Group();
+    for(let i=0;i<3;i++){ const b=new THREE.Mesh(new THREE.SphereGeometry(0.07-i*0.015,8,6),
+      new THREE.MeshStandardMaterial({color:0x5a3a1e,roughness:0.85}));
+      b.scale.y=0.72; b.position.set((hash11(i*4.1)-0.5)*0.05, 0.05+i*0.052, (hash11(i*7.3)-0.5)*0.05); m.add(b); }
+    m.position.set(x,0,z); squat=1; sfx.poop(); flash('Present delivered. 💩');
+  }
+  m.scale.setScalar(0.05); m.userData={s:0.05}; scene.add(m); messMeshes.push(m);
+  state.messes++; updateHUD();
+  if(messMeshes.length>40){ scene.remove(messMeshes.shift()); }
+}
 function evalGate(){
   state.switchesOn = switchObjs.filter(s=>s.on).length;
   const allSw = switchObjs.every(s=>s.on);
@@ -401,13 +459,17 @@ function evalGate(){
   }
 }
 function updateHUD(){
-  document.getElementById('cnt').innerHTML='Switches '+switchObjs.filter(s=>s.on).length+' / 3<br>Socks '+state.socks+' / 2';
+  document.getElementById('cnt').innerHTML='Switches '+switchObjs.filter(s=>s.on).length+' / 3<br>Socks '+state.socks+' / 2<br>Presents 💩 '+state.messes;
   document.getElementById('obj').textContent = state.exitOpen ? 'Objective: ESCAPE out the front door!'
-    : 'Objective: flip 3 switches + shove the crate onto the green pad';
+    : 'Get out: flip 3 switches + shove the crate onto the pad. Or punish them (Q / F).';
 }
 let winT=0;
 function triggerWin(){ if(state.won) return; state.won=true; sfx.win(); document.exitPointerLock&&document.exitPointerLock();
-  document.getElementById('win-sub').textContent='Good boy. '+(state.socks?('You nabbed '+state.socks+' sock'+(state.socks>1?'s':'')+' too. '):'')+'The whole yard is yours.';
+  const bits=[];
+  if(state.socks) bits.push(state.socks+' stolen sock'+(state.socks>1?'s':''));
+  if(state.messes) bits.push(state.messes+' little present'+(state.messes>1?'s':'')+' for Mom and Dad to find');
+  const haul = bits.length ? (' Behind you: '+bits.join(' and ')+'.') : '';
+  document.getElementById('win-sub').textContent='You nose the front door open and trot into the sunshine.'+haul+' Worth it. Every time. Good boy, Elvis.';
 }
 
 // ============================================================ audio
@@ -425,6 +487,8 @@ const sfx={
   no:()=>beep(160,0.12,'sawtooth',0.08,110),
   unlock:()=>{beep(523,0.1,'sine',0.12);setTimeout(()=>beep(784,0.16,'sine',0.12),90);},
   win:()=>[523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>beep(f,0.2,'triangle',0.12),i*130)),
+  pee:()=>[880,760,660,560,500].forEach((f,i)=>setTimeout(()=>beep(f,0.06,'sine',0.05),i*55)),
+  poop:()=>{ beep(150,0.14,'sawtooth',0.1,72); setTimeout(()=>beep(95,0.12,'sine',0.09,60),70); },
 };
 function toggleMute(){ muted=!muted; document.getElementById('muteBtn').textContent=muted?'🔇':'🔊'; }
 document.getElementById('muteBtn').onclick=toggleMute;
@@ -470,9 +534,13 @@ function frame(){
     refreshNearest();
   }
 
+  // mess squat dip + grow-in animation
+  if(squat>0.001){ squat*=0.9; } else squat=0;
+  for(const m of messMeshes){ if(m.userData.s<1){ m.userData.s=Math.min(1,m.userData.s+0.16); m.scale.setScalar(m.userData.s); } }
+
   // camera transform
-  camera.position.set(player.x, EYE + (started?Math.sin(stepPhase*Math.PI*2)*0.012*Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED):0), player.z);
-  camera.quaternion.setFromEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
+  camera.position.set(player.x, EYE - squat*0.32 + (started?Math.sin(stepPhase*Math.PI*2)*0.012*Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED):0), player.z);
+  camera.quaternion.setFromEuler(new THREE.Euler(pitch + squat*0.4, yaw, 0,'YXZ'));
 
   // ears head-bob
   const speed01=Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED);
@@ -481,10 +549,10 @@ function frame(){
   huskyRig.position.x=Math.sin(bob.phase)*0.01*speed01;
   huskyRig.rotation.z=Math.sin(bob.phase)*0.045*speed01;
   let dYaw=yaw-bob.yawPrev; bob.yawPrev=yaw; if(dYaw>Math.PI)dYaw-=Math.PI*2; if(dYaw<-Math.PI)dYaw+=Math.PI*2;
-  bob.yawLag+=(dYaw-bob.yawLag)*Math.min(1,dt*8); huskyRig.rotation.y=-bob.yawLag*2.2;
-  const pin=-0.18-speed01*0.1; earL.rotation.x=pin; earR.rotation.x=pin;
-  earL.rotation.z=-0.28+bob.yawLag*1.1+Math.sin(bob.phase)*0.03*speed01;
-  earR.rotation.z= 0.28+bob.yawLag*1.1-Math.sin(bob.phase)*0.03*speed01;
+  bob.yawLag+=(dYaw-bob.yawLag)*Math.min(1,dt*10); huskyRig.rotation.y=-bob.yawLag*0.6;
+  const pin=0.06-speed01*0.14; earL.rotation.x=pin; earR.rotation.x=pin;
+  earL.rotation.z=-EAR_OUT-bob.yawLag*0.9+Math.sin(bob.phase)*0.04*speed01;
+  earR.rotation.z= EAR_OUT-bob.yawLag*0.9-Math.sin(bob.phase)*0.04*speed01;
 
   // door swing + win shaft
   const targetOpen = state.exitOpen?1:0;

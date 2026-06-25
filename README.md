@@ -15,11 +15,17 @@ Open `index.html` in a modern browser, or play the hosted version (link in the r
 | Move | `W` `A` `S` `D` or arrow keys |
 | Look | Mouse (click to capture) |
 | Interact | `E` |
+| Poop | `Q` |
+| Pee | `F` |
 | Mute | `M` |
+
+## Story
+
+**Chapter One: Home Alone.** Mom and Dad leave for the day and shut you in. Find your own way out... or punish them for leaving by leaving a few little presents on the carpet.
 
 ## Goal
 
-Run around the house and figure out how to get out: flip the switches, move what needs moving, and reach the exit door.
+Run around the house and figure out how to get out: flip the three switches, shove the crate onto the green pad, and reach the front door. Steal socks and leave messes for bonus mischief. Your sock and present tally shows up on the escape screen.
 
 ---
 
