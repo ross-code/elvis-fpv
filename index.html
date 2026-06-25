@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Elvis FPV — A Husky's-Eye Escape</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#241a12;font-family:'Trebuchet MS',system-ui,sans-serif;}
+  #c{display:block;width:100%;height:100%;}
+  #hud{position:fixed;inset:0;pointer-events:none;color:#fff7ec;text-shadow:0 2px 6px #000a;user-select:none;}
+  #obj{position:absolute;top:14px;left:16px;font-size:15px;opacity:.95;}
+  #cnt{position:absolute;top:14px;right:16px;font-size:15px;text-align:right;line-height:1.5;}
+  #prompt{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);
+    background:#1c140dcc;border:1px solid #ffffff22;padding:8px 16px;border-radius:999px;font-size:15px;
+    opacity:0;transition:opacity .12s;white-space:nowrap;}
+  #recticle{position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px;border-radius:50%;
+    background:#fff8;box-shadow:0 0 0 1px #0006;}
+  #toast{position:absolute;left:50%;top:16%;transform:translateX(-50%);background:#1c140de8;border:1px solid #ffffff22;
+    padding:7px 15px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s,top .2s;}
+  #toast.show{opacity:1;top:13%;}
+  .mini{position:absolute;top:46px;right:16px;pointer-events:auto;cursor:pointer;background:#1c140dcc;
+    border:1px solid #ffffff22;color:#fff7ec;border-radius:9px;padding:5px 9px;font-size:13px;}
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;gap:14px;padding:24px;background:linear-gradient(180deg,#241a12e6,#160f0af2);pointer-events:auto;}
+  .overlay.hidden{display:none;}
+  .overlay h1{font-size:clamp(30px,6vw,56px);margin:0;color:#ffe0a3;}
+  .overlay h2{margin:0;font-size:22px;}
+  .overlay p{margin:0;max-width:520px;color:#d9c9b5;font-size:15px;line-height:1.5;}
+  .tag{color:#ffcf8c;letter-spacing:1px;text-transform:uppercase;font-size:13px;font-weight:bold;}
+  .btn{cursor:pointer;border:none;border-radius:12px;padding:13px 28px;font-size:18px;font-weight:bold;color:#3a2a10;
+    background:linear-gradient(180deg,#ffe0a3,#f0b85a);box-shadow:0 6px 0 #9c7430,0 10px 18px #0007;}
+  .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #9c7430;}
+  .keys{color:#bda988;font-size:13px;}
+  .keys kbd{background:#3a2c1e;border:1px solid #ffffff22;border-bottom-width:3px;border-radius:6px;padding:2px 8px;margin:0 2px;color:#fff7ec;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="obj">Objective: find a way out of the house</div>
+  <div id="cnt">Switches 0 / 3<br>Socks 0 / 2</div>
+  <div id="recticle"></div>
+  <div id="prompt"></div>
+  <div id="toast"></div>
+  <button class="mini" id="muteBtn" title="Mute (M)">🔊</button>
+</div>
+
+<div class="overlay" id="startScreen">
+  <div class="tag">A Husky's-Eye Escape Game</div>
+  <h1>Elvis FPV 🐺🎥</h1>
+  <p>A GoPro is strapped behind <b>Elvis</b>, a pure-white Siberian husky. The humans left and shut you in.
+     Tear around the house, flip the three switches, shove the crate onto the green pad, and bolt out the front door.</p>
+  <button class="btn" id="playBtn">Click to play ▸</button>
+  <div class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> run · <kbd>Mouse</kbd> look · <kbd>E</kbd> interact · arrows also look</div>
+</div>
+
+<div class="overlay hidden" id="winScreen">
+  <div class="tag">Free!</div>
+  <h1>Elvis Escaped! 🐺</h1>
+  <p id="win-sub">Good boy. The whole yard is yours.</p>
+  <button class="btn" id="againBtn">Run it again ▸</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ============================================================ constants
+const EYE=0.85, RADIUS=0.35, ACCEL=34, MAX_SPEED=4.8, FRICTION=11, LOOK_KEY=1.8, REACH=2.0;
+const WALL_H=2.6, WALL_T=0.2;
+
+// ============================================================ world data (data-driven house + escape puzzle)
+const WORLD = {
+  bounds:{x0:0,z0:0,x1:20,z1:14},
+  spawn:{x:10, z:11.5, yaw:0},                 // yaw 0 faces -Z (into the house); exit is behind (south)
+  walls:[
+    {x:10.0,z:0.0, w:20.0,d:WALL_T},           // north
+    {x:0.0, z:7.0, w:WALL_T,d:14.0},           // west
+    {x:20.0,z:7.0, w:WALL_T,d:14.0},           // east
+    {x:5.15,z:14.0,w:10.3,d:WALL_T},           // south-left (gap = exit at x10.3..11.7)
+    {x:15.85,z:14.0,w:8.3,d:WALL_T},           // south-right
+    {x:7.0, z:9.25,w:WALL_T,d:2.5},            // kitchen|living (gap z10.5..12)
+    {x:7.0, z:13.0,w:WALL_T,d:2.0},
+    {x:1.25,z:8.0, w:2.5,d:WALL_T},            // front|back divider (gaps)
+    {x:6.75,z:8.0, w:5.5,d:WALL_T},
+    {x:15.5,z:8.0, w:9.0,d:WALL_T},
+    {x:7.0, z:1.5, w:WALL_T,d:3.0},            // bedroom|hall spur (gap z3..4.5)
+    {x:7.0, z:6.25,w:WALL_T,d:3.5},
+    {x:9.0, z:1.5, w:WALL_T,d:3.0},            // hall spur|backroom (gap z3..4.5)
+    {x:9.0, z:6.25,w:WALL_T,d:3.5},
+  ],
+  furniture:[
+    {x:12.5,z:13.0,w:3.0,d:1.0,h:0.8,color:0x8a5a3b},   // sofa
+    {x:11.0,z:11.3,w:1.4,d:0.7,h:0.45,color:0x5a3a22},  // coffee table
+    {x:13.6,z:9.2, w:1.6,d:0.5,h:0.6,color:0x222426},   // tv stand
+    {x:0.7, z:11.0,w:1.0,d:5.0,h:0.9,color:0xcfcabd},   // kitchen counter
+    {x:4.0, z:11.0,w:2.2,d:1.0,h:0.9,color:0xb8b2a3},   // island
+    {x:6.3, z:13.3,w:0.8,d:0.8,h:1.9,color:0xdddddd},   // fridge
+    {x:2.0, z:1.6, w:2.2,d:2.0,h:0.6,color:0x3b5a8a},   // bed
+    {x:5.8, z:0.7, w:1.4,d:0.6,h:1.0,color:0x6b4a2a},   // dresser
+    {x:19.2,z:4.0, w:0.6,d:6.0,h:2.0,color:0x4a3a2a},   // shelf
+    {x:12.0,z:1.0, w:1.0,d:1.0,h:1.0,color:0xb98a4a},   // box stack
+    {x:16.5,z:6.5, w:1.2,d:1.2,h:0.9,color:0xb98a4a},
+    {x:13.6,z:6.8, w:1.2,d:0.4,h:0.8,color:0x5a3a22},   // hallway console
+  ],
+  crate:{x:14.0,z:5.0,w:0.9,d:0.9,h:0.9,color:0xc8923c},
+  pad:{x:9.0,z:12.5,w:1.3,d:1.3},
+  switches:[
+    {id:'A',x:0.18,z:9.5, y:1.0,nx:1, room:'kitchen'},
+    {id:'B',x:0.18,z:5.0, y:1.0,nx:1, room:'bedroom'},
+    {id:'C',x:19.82,z:1.0,y:1.0,nx:-1,room:'back room'},
+  ],
+  exit:{x:11.0,z:14.0,w:1.4,h:2.2},
+  socks:[ {x:2.0,z:2.0,y:0.75}, {x:13.6,z:9.2,y:0.95} ],
+};
+
+// ============================================================ renderer / scene / camera
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x2a2018);
+scene.fog=new THREE.Fog(0x2a2018,6,26);
+const camera=new THREE.PerspectiveCamera(78,1,0.05,120);
+scene.add(camera);                              // REQUIRED so camera-children (ears) render
+const clock=new THREE.Clock();
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+addEventListener('resize',resize); resize();
+
+// ============================================================ player state
+const player={x:WORLD.spawn.x, z:WORLD.spawn.z};
+let yaw=WORLD.spawn.yaw, pitch=0;
+const vel={x:0,z:0};
+const colliders=[];   // static {minX,maxX,minZ,maxZ}
+function aabbFrom(o){ return {minX:o.x-o.w/2,maxX:o.x+o.w/2,minZ:o.z-o.d/2,maxZ:o.z+o.d/2}; }
+
+// ============================================================ materials
+const matWall=new THREE.MeshStandardMaterial({color:0xd9c3a5,roughness:0.92,vertexColors:true});
+const matFloorA=new THREE.MeshStandardMaterial({color:0x8a5a36,roughness:0.85});
+const matFloorB=new THREE.MeshStandardMaterial({color:0x794d2d,roughness:0.85});
+const matCeil=new THREE.MeshStandardMaterial({color:0x3a2c20,roughness:1});
+function tintVert(geo,h){
+  const pos=geo.attributes.position,n=pos.count,col=new Float32Array(n*3);
+  for(let i=0;i<n;i++){const y=pos.getY(i);const t=THREE.MathUtils.clamp((y+h/2)/h,0,1);const s=0.5+0.5*t;col[i*3]=col[i*3+1]=col[i*3+2]=s;}
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+}
+
+// ============================================================ build house
+const B=WORLD.bounds, FW=B.x1-B.x0, FD=B.z1-B.z0;
+// floor planks
+for(let i=0;i<FD;i++){
+  const g=new THREE.PlaneGeometry(FW,1).rotateX(-Math.PI/2);
+  const m=new THREE.Mesh(g, i%2?matFloorA:matFloorB);
+  m.position.set(B.x0+FW/2, 0, B.z0+0.5+i); scene.add(m);
+}
+// ceiling
+const ceil=new THREE.Mesh(new THREE.PlaneGeometry(FW,FD).rotateX(Math.PI/2),matCeil);
+ceil.position.set(B.x0+FW/2,WALL_H,B.z0+FD/2); scene.add(ceil);
+// walls (as boxes) + colliders
+for(const w of WORLD.walls){
+  const g=new THREE.BoxGeometry(w.w,WALL_H,w.d); tintVert(g,WALL_H);
+  const m=new THREE.Mesh(g,matWall); m.position.set(w.x,WALL_H/2,w.z); scene.add(m);
+  colliders.push(aabbFrom(w));
+}
+// furniture + colliders + contact shadows
+for(const f of WORLD.furniture){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(f.w,f.h,f.d),new THREE.MeshStandardMaterial({color:f.color,roughness:0.85}));
+  m.position.set(f.x,f.h/2,f.z); scene.add(m);
+  colliders.push(aabbFrom(f)); contactShadow(f.x,f.z,Math.max(f.w,f.d)*0.95);
+}
+
+// ============================================================ contact shadow + glow textures
+var _shTex,_glTex;   // var (not let): hoisted so the furniture loop above can call contactShadow()
+function shadowTex(){ if(_shTex)return _shTex; const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');
+  const r=g.createRadialGradient(64,64,4,64,64,62); r.addColorStop(0,'rgba(0,0,0,.5)');r.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=r;g.fillRect(0,0,128,128); _shTex=new THREE.CanvasTexture(c); return _shTex; }
+function glowTex(){ if(_glTex)return _glTex; const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');
+  const r=g.createRadialGradient(64,64,2,64,64,64); r.addColorStop(0,'rgba(255,255,255,1)');r.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=r;g.fillRect(0,0,128,128); _glTex=new THREE.CanvasTexture(c); return _glTex; }
+function contactShadow(x,z,size){
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(size,size).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({map:shadowTex(),transparent:true,depthWrite:false,opacity:0.7}));
+  m.position.set(x,0.02,z); scene.add(m);
+}
+
+// ============================================================ windows + lighting
+function windowAt(x,z,ry){
+  const w=new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.3),
+    new THREE.MeshStandardMaterial({color:0xbfe0ff,emissive:0xbfe0ff,emissiveIntensity:0.7,roughness:1}));
+  w.position.set(x,1.5,z); w.rotation.y=ry; scene.add(w);
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color:0xdff0ff,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+  glow.scale.set(3.4,3.4,1); glow.position.set(x,1.5,z); scene.add(glow);
+}
+windowAt(0.07,3.0,Math.PI/2); windowAt(19.93,11.5,-Math.PI/2); windowAt(3.0,0.07,0);
+scene.add(new THREE.AmbientLight(0xfff2dd,0.5));
+scene.add(new THREE.HemisphereLight(0xfff0d8,0x3a2c22,0.55));
+function lamp(x,z,c,i){ const l=new THREE.PointLight(c,i,11,2); l.position.set(x,2.3,z); scene.add(l); return l; }
+lamp(10.5,11,0xffcf8c,1.2); lamp(3.5,11,0xffe0b0,1.0); lamp(3.5,4,0xbfb0ff,0.9); lamp(15,3.5,0xffcf8c,1.0); lamp(11,6.8,0xffe0b0,0.8);
+
+// ============================================================ pad, crate, switches, door, socks
+// pad
+const pad=new THREE.Mesh(new THREE.PlaneGeometry(WORLD.pad.w,WORLD.pad.d).rotateX(-Math.PI/2),
+  new THREE.MeshStandardMaterial({color:0x2f7a45,emissive:0x114022,emissiveIntensity:0.5,roughness:1}));
+pad.position.set(WORLD.pad.x,0.03,WORLD.pad.z); scene.add(pad);
+
+// crate (dynamic)
+const crate={...WORLD.crate};
+const crateMesh=new THREE.Mesh(new THREE.BoxGeometry(crate.w,crate.h,crate.d),
+  new THREE.MeshStandardMaterial({color:crate.color,roughness:0.8}));
+scene.add(crateMesh);
+// plank lines on the crate
+const crateEdges=new THREE.LineSegments(new THREE.EdgesGeometry(crateMesh.geometry),new THREE.LineBasicMaterial({color:0x6b3f17}));
+crateMesh.add(crateEdges);
+
+// switches
+const raycaster=new THREE.Raycaster();
+const switchObjs=[];
+function makeSwitch(s){
+  const grp=new THREE.Group(); grp.position.set(s.x, s.y, s.z); grp.rotation.y = s.nx>0?Math.PI/2:-Math.PI/2; scene.add(grp);
+  const plate=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.34,0.05),new THREE.MeshStandardMaterial({color:0x2a2a2e,roughness:0.6}));
+  grp.add(plate);
+  const lever=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.16,0.07),new THREE.MeshStandardMaterial({color:0xcc4422,roughness:0.5}));
+  lever.position.z=0.05; lever.rotation.x=0.55; grp.add(lever);
+  const o={...s,on:false,grp,plate,lever}; switchObjs.push(o); return o;
+}
+WORLD.switches.forEach(makeSwitch);
+
+// exit door (hinged, swings open)
+const doorPivot=new THREE.Group(); doorPivot.position.set(WORLD.exit.x-WORLD.exit.w/2, 0, WORLD.exit.z); scene.add(doorPivot);
+const doorPanel=new THREE.Mesh(new THREE.BoxGeometry(WORLD.exit.w,WORLD.exit.h,WALL_T+0.04),
+  new THREE.MeshStandardMaterial({color:0x7a4a28,roughness:0.7}));
+doorPanel.position.set(WORLD.exit.w/2, WORLD.exit.h/2, 0); doorPivot.add(doorPanel);
+const handle=new THREE.Mesh(new THREE.SphereGeometry(0.06,12,10),new THREE.MeshStandardMaterial({color:0xcc4422,emissive:0x220000}));
+handle.position.set(WORLD.exit.w-0.12, WORLD.exit.h/2, 0.13); doorPivot.add(handle);
+let doorCollider=aabbFrom({x:WORLD.exit.x,z:WORLD.exit.z,w:WORLD.exit.w,d:WALL_T}); colliders.push(doorCollider);
+// daylight shaft beyond the door (hidden until open)
+const shaft=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.6),
+  new THREE.MeshBasicMaterial({color:0xfff0c8,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+shaft.position.set(WORLD.exit.x,1.3,WORLD.exit.z+1.0); scene.add(shaft);
+const sunBeyond=new THREE.DirectionalLight(0xfff0c8,0); sunBeyond.position.set(WORLD.exit.x,4,WORLD.exit.z+4); scene.add(sunBeyond);
+
+// socks
+const sockObjs=[];
+WORLD.socks.forEach(s=>{
+  const g=new THREE.Group(); g.position.set(s.x,s.y,s.z); scene.add(g);
+  const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.05,0.12,4,8),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1}));
+  body.rotation.z=0.5; g.add(body);
+  const stripe=new THREE.Mesh(new THREE.TorusGeometry(0.052,0.014,6,12),new THREE.MeshStandardMaterial({color:0xe44b6d}));
+  stripe.position.y=0.05; stripe.rotation.x=Math.PI/2; g.add(stripe);
+  sockObjs.push({...s,grp:g,got:false});
+});
+
+// ============================================================ Elvis ears + snout (parented to camera)
+function hash11(n){ const x=Math.sin(n*127.1)*43758.5453123; return x-Math.floor(x); }
+const matFur=new THREE.MeshStandardMaterial({color:0xfdfdff,roughness:0.97,flatShading:true});
+const matFurShadow=new THREE.MeshStandardMaterial({color:0xd9dee6,roughness:1,flatShading:true});
+const matInner=new THREE.MeshStandardMaterial({color:0xe7a3b0,roughness:0.85,side:THREE.DoubleSide});
+const matNose=new THREE.MeshStandardMaterial({color:0x1a1a1f,roughness:0.25});
+const matTongue=new THREE.MeshStandardMaterial({color:0xef9aa6,roughness:0.7,side:THREE.DoubleSide});
+function makeEar(seed){
+  const ear=new THREE.Group();
+  const g=new THREE.ConeGeometry(0.08,0.27,9,4,true);
+  const pos=g.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const j=hash11(seed*31.7+i)-0.5, k=hash11(seed*17.3+i*2.1)-0.5, y=pos.getY(i), taper=(y+0.135)/0.27;
+    pos.setX(i,pos.getX(i)+j*0.032*taper); pos.setZ(i,pos.getZ(i)+k*0.032*taper); pos.setY(i,y+(hash11(seed+i*5)-0.5)*0.02);
+  }
+  g.computeVertexNormals();
+  ear.add(new THREE.Mesh(g,matFur));
+  const sh=new THREE.Mesh(new THREE.ConeGeometry(0.075,0.25,7),matFurShadow); sh.position.z=-0.03; sh.scale.set(0.85,0.95,0.4); ear.add(sh);
+  const inner=new THREE.Mesh(new THREE.ConeGeometry(0.035,0.18,6,1,true),matInner); inner.position.set(0,-0.01,0.05); ear.add(inner);
+  return ear;
+}
+const huskyRig=new THREE.Group(); camera.add(huskyRig);
+const earL=makeEar(1), earR=makeEar(2);
+earL.position.set(-0.17,-0.17,-0.55); earR.position.set(0.17,-0.17,-0.55);
+earL.rotation.set(-0.18,0.1,-0.28); earR.rotation.set(-0.18,-0.1,0.28);
+// snout + nose + tongue
+const snout=new THREE.Group(); snout.position.set(0,-0.5,-0.52); snout.rotation.x=0.35;
+const muzzleGeo=new THREE.SphereGeometry(0.17,14,10); muzzleGeo.scale(1,0.62,1.4);
+snout.add(new THREE.Mesh(muzzleGeo,matFur));
+const nose=new THREE.Mesh(new THREE.SphereGeometry(0.05,16,12),matNose); nose.scale.set(1.25,0.85,0.9); nose.position.set(0,0.02,0.215); snout.add(nose);
+const tShape=new THREE.Shape(); tShape.moveTo(-0.035,0); tShape.quadraticCurveTo(-0.055,-0.11,0,-0.14); tShape.quadraticCurveTo(0.055,-0.11,0.035,0);
+const tongue=new THREE.Mesh(new THREE.ShapeGeometry(tShape),matTongue); tongue.position.set(0,-0.01,0.2); tongue.rotation.x=-0.5; snout.add(tongue);
+huskyRig.add(earL,earR,snout);
+huskyRig.traverse(o=>{ if(o.isMesh){ o.renderOrder=999; o.material.depthTest=false; o.frustumCulled=false; } });
+const furFill=new THREE.PointLight(0xfff6ea,0.7,3); furFill.position.set(0,0.3,0.2); camera.add(furFill);
+const bob={phase:0,yawPrev:yaw,yawLag:0};
+
+// ============================================================ collision (circle vs AABB, substepped) — verified
+function resolveCircle(x,z,extra){
+  const list= extra ? colliders.concat([extra]) : colliders;
+  for(let it=0;it<4;it++){ let moved=false;
+    for(const b of list){
+      const cx=Math.max(b.minX,Math.min(x,b.maxX)), cz=Math.max(b.minZ,Math.min(z,b.maxZ));
+      const dx=x-cx,dz=z-cz,d2=dx*dx+dz*dz;
+      if(d2<RADIUS*RADIUS-1e-6){
+        if(d2>1e-9){const d=Math.sqrt(d2),p=(RADIUS-d)/d; x+=dx*p; z+=dz*p;}
+        else{const a=x-b.minX,c=b.maxX-x,e=z-b.minZ,g=b.maxZ-z,m=Math.min(a,c,e,g);
+          if(m===a)x=b.minX-RADIUS; else if(m===c)x=b.maxX+RADIUS; else if(m===e)z=b.minZ-RADIUS; else z=b.maxZ+RADIUS;}
+        moved=true;
+      }
+    }
+    if(!moved) break;
+  }
+  return {x,z};
+}
+function crateAABB(){ return aabbFrom({x:crate.x,z:crate.z,w:crate.w,d:crate.d}); }
+function moveWithCollision(dt){
+  const dispX=vel.x*dt, dispZ=vel.z*dt, dist=Math.hypot(dispX,dispZ);
+  const steps=Math.max(1,Math.ceil(dist/(RADIUS*0.5)));
+  let x=player.x,z=player.z;
+  for(let i=0;i<steps;i++){
+    x+=dispX/steps; z+=dispZ/steps;
+    // push the crate if we run into it
+    pushCrate(x,z);
+    const r=resolveCircle(x,z,crateAABB()); x=r.x; z=r.z;
+  }
+  player.x=x; player.z=z;
+}
+function pushCrate(px,pz){
+  const b=crateAABB();
+  const cx=Math.max(b.minX,Math.min(px,b.maxX)), cz=Math.max(b.minZ,Math.min(pz,b.maxZ));
+  const dx=px-cx, dz=pz-cz, d2=dx*dx+dz*dz;
+  if(d2<RADIUS*RADIUS && d2>1e-9){
+    const d=Math.sqrt(d2), pen=RADIUS-d, nx=dx/d, nz=dz/d;
+    // move crate away from player (player pushes it)
+    let nxp=crate.x - nx*pen, nzp=crate.z - nz*pen;
+    // resolve crate vs static walls/furniture per-axis
+    crate.x=nxp; resolveCrateAxis('x'); crate.z=nzp; resolveCrateAxis('z');
+    crateMesh.position.set(crate.x,crate.h/2,crate.z);
+  }
+}
+function resolveCrateAxis(axis){
+  for(const c of colliders){
+    const ox=(crate.w)/2+(c.maxX-c.minX)/2-Math.abs(crate.x-(c.minX+c.maxX)/2);
+    const oz=(crate.d)/2+(c.maxZ-c.minZ)/2-Math.abs(crate.z-(c.minZ+c.maxZ)/2);
+    if(ox>0&&oz>0){
+      if(axis==='x') crate.x += (crate.x<(c.minX+c.maxX)/2 ? -ox : ox);
+      else           crate.z += (crate.z<(c.minZ+c.maxZ)/2 ? -oz : oz);
+    }
+  }
+}
+
+// ============================================================ input
+const keys={};
+addEventListener('keydown',e=>{ keys[e.code]=true;
+  if(e.code==='KeyE') tryInteract();
+  if(e.code==='KeyM') toggleMute();
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+});
+addEventListener('keyup',e=>{ keys[e.code]=false; });
+let locked=false;
+canvas.addEventListener('click',()=>{ if(started && !locked && canvas.requestPointerLock) canvas.requestPointerLock(); });
+document.addEventListener('pointerlockchange',()=>{ locked=(document.pointerLockElement===canvas); });
+addEventListener('mousemove',e=>{ if(!locked) return; const s=0.0022; yaw-=e.movementX*s; pitch-=e.movementY*s;
+  const lim=Math.PI/2-0.05; pitch=Math.max(-lim,Math.min(lim,pitch)); });
+
+// ============================================================ interaction
+let nearest=null;
+function refreshNearest(){
+  nearest=null; let best=1e9;
+  for(const s of switchObjs){ if(s.on) continue;
+    const d=Math.hypot(camera.position.x-s.x, camera.position.z-s.z);
+    if(d<=REACH){ const f=facingDot(s.x,s.z); if(f>0.1 && d<best){best=d; nearest={kind:'switch',obj:s,label:'Press E: flip switch '+s.id};} }
+  }
+  // door
+  const dd=Math.hypot(camera.position.x-WORLD.exit.x, camera.position.z-WORLD.exit.z);
+  if(dd<=REACH+0.6){ const f=facingDot(WORLD.exit.x,WORLD.exit.z);
+    if(f>0 && dd<best){ nearest={kind:'door',label: state.exitOpen?'Press E: ESCAPE!':'Locked. Flip all 3 switches + push the crate onto the pad.'}; } }
+}
+function facingDot(tx,tz){ const fx=-Math.sin(yaw),fz=-Math.cos(yaw); const dx=tx-camera.position.x,dz=tz-camera.position.z; const l=Math.hypot(dx,dz)||1; return (fx*dx+fz*dz)/l; }
+function tryInteract(){
+  if(!nearest) return;
+  if(nearest.kind==='switch'){ const s=nearest.obj; if(s.on) return;
+    s.on=true; s.lever.rotation.x=-0.55; s.lever.material.color.set(0x33cc55);
+    sfx.click(); sfx.bark(); flash('Switch '+s.id+' flipped! 🐾'); updateHUD();
+  } else if(nearest.kind==='door'){ if(state.exitOpen) triggerWin(); else { sfx.no(); flash('Still locked. 3 switches + crate on pad.'); } }
+}
+
+// ============================================================ game state / win
+const state={switchesOn:0, padPressed:false, exitOpen:false, won:false, socks:0};
+let doorOpen=0; // 0..1 animation
+function evalGate(){
+  state.switchesOn = switchObjs.filter(s=>s.on).length;
+  const allSw = switchObjs.every(s=>s.on);
+  const p=WORLD.pad;
+  state.padPressed = Math.abs(crate.x-p.x) <= (p.w+crate.w)/2-0.1 && Math.abs(crate.z-p.z) <= (p.d+crate.d)/2-0.1;
+  const open = allSw && state.padPressed;
+  if(open && !state.exitOpen){ // just unlocked
+    state.exitOpen=true; handle.material.color.set(0x66dd88); handle.material.emissive.set(0x113311);
+    sfx.unlock(); flash('The front door clicks open! 🚪'); updateHUD();
+    // remove the door collider so Elvis can run through
+    const i=colliders.indexOf(doorCollider); if(i>=0) colliders.splice(i,1);
+  }
+}
+function updateHUD(){
+  document.getElementById('cnt').innerHTML='Switches '+switchObjs.filter(s=>s.on).length+' / 3<br>Socks '+state.socks+' / 2';
+  document.getElementById('obj').textContent = state.exitOpen ? 'Objective: ESCAPE out the front door!'
+    : 'Objective: flip 3 switches + shove the crate onto the green pad';
+}
+let winT=0;
+function triggerWin(){ if(state.won) return; state.won=true; sfx.win(); document.exitPointerLock&&document.exitPointerLock();
+  document.getElementById('win-sub').textContent='Good boy. '+(state.socks?('You nabbed '+state.socks+' sock'+(state.socks>1?'s':'')+' too. '):'')+'The whole yard is yours.';
+}
+
+// ============================================================ audio
+let muted=false, actx=null;
+function beep(f,dur=0.08,type='sine',vol=0.12,slide=null){ if(muted)return;
+  try{ actx=actx||new (AudioContext||webkitAudioContext)(); const o=actx.createOscillator(),g=actx.createGain();
+    o.type=type;o.frequency.value=f; if(slide)o.frequency.exponentialRampToValueAtTime(slide,actx.currentTime+dur);
+    g.gain.value=vol; g.gain.exponentialRampToValueAtTime(0.0001,actx.currentTime+dur); o.connect(g);g.connect(actx.destination);
+    o.start();o.stop(actx.currentTime+dur);}catch(e){}
+}
+const sfx={
+  step:()=>beep(90+Math.random()*30,0.04,'sine',0.05),
+  bark:()=>{beep(420,0.07,'square',0.09,260); setTimeout(()=>beep(300,0.08,'square',0.07,180),60);},
+  click:()=>beep(700,0.05,'square',0.08,520),
+  no:()=>beep(160,0.12,'sawtooth',0.08,110),
+  unlock:()=>{beep(523,0.1,'sine',0.12);setTimeout(()=>beep(784,0.16,'sine',0.12),90);},
+  win:()=>[523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>beep(f,0.2,'triangle',0.12),i*130)),
+};
+function toggleMute(){ muted=!muted; document.getElementById('muteBtn').textContent=muted?'🔇':'🔊'; }
+document.getElementById('muteBtn').onclick=toggleMute;
+let stepPhase=0;
+
+// ============================================================ overlays / flow
+let started=false;
+const startScreen=document.getElementById('startScreen'), winScreen=document.getElementById('winScreen');
+document.getElementById('playBtn').onclick=()=>{ started=true; startScreen.classList.add('hidden');
+  if(actx&&actx.state==='suspended')actx.resume(); if(canvas.requestPointerLock) canvas.requestPointerLock(); };
+document.getElementById('againBtn').onclick=()=>location.reload();
+let toastT=null;
+function flash(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1600); }
+
+// ============================================================ main loop
+function frame(){
+  requestAnimationFrame(frame);
+  const dt=Math.min(0.033, clock.getDelta()); const elapsed=clock.elapsedTime;
+
+  if(started && !state.won){
+    // look via arrow keys (mouse handled in mousemove)
+    if(keys['ArrowLeft']) yaw+=LOOK_KEY*dt;
+    if(keys['ArrowRight']) yaw-=LOOK_KEY*dt;
+    if(keys['ArrowUp']) pitch+=LOOK_KEY*dt;
+    if(keys['ArrowDown']) pitch-=LOOK_KEY*dt;
+    const lim=Math.PI/2-0.05; pitch=Math.max(-lim,Math.min(lim,pitch));
+    // move (WASD)
+    let fIn=(keys['KeyW']?1:0)-(keys['KeyS']?1:0), rIn=(keys['KeyD']?1:0)-(keys['KeyA']?1:0);
+    const fx=-Math.sin(yaw),fz=-Math.cos(yaw), rx=Math.cos(yaw),rz=-Math.sin(yaw);
+    let wx=fx*fIn+rx*rIn, wz=fz*fIn+rz*rIn; const wl=Math.hypot(wx,wz);
+    if(wl>1e-6){ wx/=wl; wz/=wl; vel.x+=wx*ACCEL*dt; vel.z+=wz*ACCEL*dt;
+      const sp=Math.hypot(vel.x,vel.z); if(sp>MAX_SPEED){vel.x=vel.x/sp*MAX_SPEED;vel.z=vel.z/sp*MAX_SPEED;}
+    } else { const damp=Math.max(0,1-FRICTION*dt); vel.x*=damp; vel.z*=damp; }
+    moveWithCollision(dt);
+    // socks pickup
+    for(const s of sockObjs){ if(s.got)continue; if(Math.hypot(player.x-s.x,player.z-s.z)<0.9){ s.got=true; s.grp.visible=false; state.socks++; sfx.click(); flash('Got a sock! 🧦'); updateHUD(); } }
+    // footstep sfx tied to speed
+    const sp=Math.hypot(vel.x,vel.z);
+    stepPhase+=dt*(4+sp*2.2); if(sp>0.6 && stepPhase>1){ stepPhase=0; sfx.step(); }
+    evalGate();
+    // win when crossing the threshold while open
+    if(state.exitOpen && player.z>14.15 && player.x>10.3 && player.x<11.7) triggerWin();
+    refreshNearest();
+  }
+
+  // camera transform
+  camera.position.set(player.x, EYE + (started?Math.sin(stepPhase*Math.PI*2)*0.012*Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED):0), player.z);
+  camera.quaternion.setFromEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
+
+  // ears head-bob
+  const speed01=Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED);
+  bob.phase+=dt*(6+speed01*9);
+  huskyRig.position.y=(Math.sin(bob.phase)*0.02+Math.sin(bob.phase*2)*0.008)*speed01 + Math.sin(elapsed*1.6)*0.004*(1-speed01);
+  huskyRig.position.x=Math.sin(bob.phase)*0.01*speed01;
+  huskyRig.rotation.z=Math.sin(bob.phase)*0.045*speed01;
+  let dYaw=yaw-bob.yawPrev; bob.yawPrev=yaw; if(dYaw>Math.PI)dYaw-=Math.PI*2; if(dYaw<-Math.PI)dYaw+=Math.PI*2;
+  bob.yawLag+=(dYaw-bob.yawLag)*Math.min(1,dt*8); huskyRig.rotation.y=-bob.yawLag*2.2;
+  const pin=-0.18-speed01*0.1; earL.rotation.x=pin; earR.rotation.x=pin;
+  earL.rotation.z=-0.28+bob.yawLag*1.1+Math.sin(bob.phase)*0.03*speed01;
+  earR.rotation.z= 0.28+bob.yawLag*1.1-Math.sin(bob.phase)*0.03*speed01;
+
+  // door swing + win shaft
+  const targetOpen = state.exitOpen?1:0;
+  doorOpen += (targetOpen-doorOpen)*Math.min(1,dt*3);
+  doorPivot.rotation.y = -doorOpen*Math.PI*0.62;
+  shaft.material.opacity = doorOpen*0.5; sunBeyond.intensity = doorOpen*0.8;
+  // pad glow when pressed
+  pad.material.emissiveIntensity = state.padPressed?1.1:0.4;
+  // win spin
+  if(state.won){ winT+=dt; yaw+=dt*2.2; if(winScreen.classList.contains('hidden')&&winT>0.6) winScreen.classList.remove('hidden'); }
+
+  // prompt HUD
+  const pe=document.getElementById('prompt');
+  if(nearest && started && !state.won){ pe.textContent=nearest.label; pe.style.opacity=1; } else pe.style.opacity=0;
+
+  renderer.render(scene,camera);
+}
+updateHUD();
+frame();
+
+// ============================================================ headless test hooks
+window.__game={ THREE, scene, camera, renderer, player, get yaw(){return yaw;}, set yaw(v){yaw=v;}, get pitch(){return pitch;}, set pitch(v){pitch=v;},
+  vel, crate, crateMesh, WORLD, colliders, switchObjs, state, evalGate, refreshNearest, tryInteract, triggerWin,
+  flipAllSwitches:()=>{switchObjs.forEach(s=>{s.on=true;s.lever&&s.lever.material.color.set(0x33cc55);});updateHUD();},
+  setStarted:(v)=>{started=v;}, get started(){return started;}, get nearest(){return nearest;} };
+</script>
+</body>
+</html>
