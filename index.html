@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>Elvis FPV — A Husky's-Eye Escape</title>
+<title>Elvis FPV: A Husky's-Eye Escape</title>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#241a12;font-family:'Trebuchet MS',system-ui,sans-serif;}
   #c{display:block;width:100%;height:100%;}
@@ -293,7 +293,7 @@ huskyRig.traverse(o=>{ if(o.isMesh){ o.renderOrder=999; o.material.depthTest=fal
 const furFill=new THREE.PointLight(0xfff6ea,0.7,3); furFill.position.set(0,0.3,0.2); camera.add(furFill);
 const bob={phase:0,yawPrev:yaw,yawLag:0};
 
-// ============================================================ collision (circle vs AABB, substepped) — verified
+// ============================================================ collision (circle vs AABB, substepped), verified
 function resolveCircle(x,z,extra){
   const list= extra ? colliders.concat([extra]) : colliders;
   for(let it=0;it<4;it++){ let moved=false;
