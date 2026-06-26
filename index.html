@@ -438,7 +438,7 @@ function leaveMess(){
   state.messes++; updateHUD();
   if(messMeshes.length>40) scene.remove(messMeshes.shift());
 }
-// POOP: hold Q to charge — the fart and the pile both keep growing until you let go
+// POOP: hold Q to charge; the fart and the pile both keep growing until you let go
 let pooping=false, poopCharge=0, poopMesh=null;
 const POOP_MIN=0.55, POOP_MAX=3.2, POOP_RATE=1.5;
 function makePoopMesh(){
@@ -561,7 +561,7 @@ function frame(){
     if(keys['ArrowUp']) pitch+=LOOK_KEY*dt;
     if(keys['ArrowDown']) pitch-=LOOK_KEY*dt;
     const lim=Math.PI/2-0.05; pitch=Math.max(-lim,Math.min(lim,pitch));
-    // move (WASD) — locked while squatting to poop
+    // move (WASD), locked while squatting to poop
     let fIn=(keys['KeyW']?1:0)-(keys['KeyS']?1:0), rIn=(keys['KeyD']?1:0)-(keys['KeyA']?1:0);
     if(pooping){ fIn=0; rIn=0; }
     const fx=-Math.sin(yaw),fz=-Math.cos(yaw), rx=Math.cos(yaw),rz=-Math.sin(yaw);
