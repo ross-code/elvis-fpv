@@ -67,7 +67,7 @@
      A whole day. Alone. Again. Fine. If they want to leave you behind, you will find your own way out.
      And maybe leave a few little surprises on the carpet first.</p>
   <button class="btn" id="playBtn">Let me out! ▸</button>
-  <div class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> run · <kbd>Mouse</kbd> look · <kbd>E</kbd> interact · <kbd>Q</kbd> poop · <kbd>F</kbd> pee</div>
+  <div class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> run · <kbd>Space</kbd> jump · <kbd>Mouse</kbd> look · <kbd>E</kbd> interact · hold <kbd>Q</kbd> poop · <kbd>F</kbd> pee</div>
 </div>
 
 <div class="overlay hidden" id="winScreen">
@@ -387,12 +387,13 @@ function resolveCrateAxis(axis){
 const keys={};
 addEventListener('keydown',e=>{ keys[e.code]=true;
   if(e.code==='KeyE') tryInteract();
-  if(e.code==='KeyQ') leaveMess('poop');
-  if(e.code==='KeyF') leaveMess('pee');
+  if(e.code==='KeyQ' && !e.repeat) startPoop();    // hold to charge a bigger poop + longer fart
+  if(e.code==='KeyF') leaveMess();
+  if(e.code==='Space' && !e.repeat) jump();
   if(e.code==='KeyM') toggleMute();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
 });
-addEventListener('keyup',e=>{ keys[e.code]=false; });
+addEventListener('keyup',e=>{ keys[e.code]=false; if(e.code==='KeyQ') finishPoop(); });
 let locked=false;
 canvas.addEventListener('click',()=>{ if(started && !locked && canvas.requestPointerLock) canvas.requestPointerLock(); });
 document.addEventListener('pointerlockchange',()=>{ locked=(document.pointerLockElement===canvas); });
@@ -426,25 +427,42 @@ const state={switchesOn:0, padPressed:false, exitOpen:false, won:false, socks:0,
 let doorOpen=0; // 0..1 animation
 let squat=0;    // brief dip when pooping
 const messMeshes=[]; let lastMess=-1;
-function leaveMess(type){
+// PEE: instant puddle + splash
+function leaveMess(){
   if(!started || state.won) return;
   const now=performance.now(); if(now-lastMess<420) return; lastMess=now;
-  const x=player.x, z=player.z; let m;
-  if(type==='pee'){
-    m=new THREE.Mesh(new THREE.CircleGeometry(0.34,18).rotateX(-Math.PI/2),
-      new THREE.MeshStandardMaterial({color:0xe6cf3a,transparent:true,opacity:0.72,roughness:0.25,metalness:0.15}));
-    m.position.set(x,0.02,z); sfx.pee(); flash('Marked the floor. 💛');
-  } else {
-    m=new THREE.Group();
-    for(let i=0;i<3;i++){ const b=new THREE.Mesh(new THREE.SphereGeometry(0.07-i*0.015,8,6),
-      new THREE.MeshStandardMaterial({color:0x5a3a1e,roughness:0.85}));
-      b.scale.y=0.72; b.position.set((hash11(i*4.1)-0.5)*0.05, 0.05+i*0.052, (hash11(i*7.3)-0.5)*0.05); m.add(b); }
-    m.position.set(x,0,z); squat=1; sfx.poop(); flash('Present delivered. 💩');
-  }
-  m.scale.setScalar(0.05); m.userData={s:0.05}; scene.add(m); messMeshes.push(m);
+  const m=new THREE.Mesh(new THREE.CircleGeometry(0.34,18).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({color:0xe6cf3a,transparent:true,opacity:0.72,roughness:0.25,metalness:0.15}));
+  m.position.set(player.x,0.02,player.z); m.scale.setScalar(0.05); m.userData={s:0.05};
+  scene.add(m); messMeshes.push(m); splash(); flash('Marked the floor. 💛');
   state.messes++; updateHUD();
-  if(messMeshes.length>40){ scene.remove(messMeshes.shift()); }
+  if(messMeshes.length>40) scene.remove(messMeshes.shift());
 }
+// POOP: hold Q to charge — the fart and the pile both keep growing until you let go
+let pooping=false, poopCharge=0, poopMesh=null;
+const POOP_MIN=0.55, POOP_MAX=3.2, POOP_RATE=1.5;
+function makePoopMesh(){
+  const m=new THREE.Group();
+  for(let i=0;i<5;i++){ const b=new THREE.Mesh(new THREE.SphereGeometry(0.085-i*0.012,8,6),
+    new THREE.MeshStandardMaterial({color:0x5a3a1e,roughness:0.85}));
+    b.scale.y=0.72; b.position.set((hash11(i*4.1)-0.5)*0.06, 0.06+i*0.05, (hash11(i*7.3)-0.5)*0.06); m.add(b); }
+  return m;
+}
+function startPoop(){
+  if(pooping || !started || state.won) return;
+  pooping=true; poopCharge=POOP_MIN;
+  poopMesh=makePoopMesh(); poopMesh.position.set(player.x,0,player.z); poopMesh.scale.setScalar(POOP_MIN*0.4);
+  scene.add(poopMesh); startFart(); squat=1; flash('Bracing for impact... 💨');
+}
+function finishPoop(){
+  if(!pooping) return; pooping=false; stopFart(); sfx.plop();
+  if(poopMesh){ messMeshes.push(poopMesh); if(messMeshes.length>40) scene.remove(messMeshes.shift()); poopMesh=null; }
+  state.messes++; updateHUD();
+  flash(poopCharge>2.0 ? 'A MONUMENTAL present! 💩💩💩' : 'Present delivered. 💩');
+}
+// JUMP
+let py=0, pvy=0;
+function jump(){ if(!started || state.won) return; if(py<=0.001){ pvy=4.4; sfx.jump(); } }
 function evalGate(){
   state.switchesOn = switchObjs.filter(s=>s.on).length;
   const allSw = switchObjs.every(s=>s.on);
@@ -464,7 +482,7 @@ function updateHUD(){
     : 'Get out: flip 3 switches + shove the crate onto the pad. Or punish them (Q / F).';
 }
 let winT=0;
-function triggerWin(){ if(state.won) return; state.won=true; sfx.win(); document.exitPointerLock&&document.exitPointerLock();
+function triggerWin(){ if(state.won) return; state.won=true; if(pooping){pooping=false; stopFart();} sfx.win(); document.exitPointerLock&&document.exitPointerLock();
   const bits=[];
   if(state.socks) bits.push(state.socks+' stolen sock'+(state.socks>1?'s':''));
   if(state.messes) bits.push(state.messes+' little present'+(state.messes>1?'s':'')+' for Mom and Dad to find');
@@ -480,6 +498,31 @@ function beep(f,dur=0.08,type='sine',vol=0.12,slide=null){ if(muted)return;
     g.gain.value=vol; g.gain.exponentialRampToValueAtTime(0.0001,actx.currentTime+dur); o.connect(g);g.connect(actx.destination);
     o.start();o.stop(actx.currentTime+dur);}catch(e){}
 }
+function AC(){ return actx=actx||new (window.AudioContext||window.webkitAudioContext)(); }
+// sustained fart while a poop charges; pitch + buzz rise with the charge
+let fartNodes=null;
+function startFart(){ if(muted) return; try{ const a=AC();
+  const o=a.createOscillator(), g=a.createGain(), lfo=a.createOscillator(), lg=a.createGain();
+  o.type='sawtooth'; o.frequency.value=72; lfo.type='sine'; lfo.frequency.value=12; lg.gain.value=24;
+  lfo.connect(lg); lg.connect(o.frequency);
+  const t=a.currentTime; g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.13,t+0.05);
+  o.connect(g); g.connect(a.destination); o.start(); lfo.start(); fartNodes={o,g,lfo}; }catch(e){} }
+function modFart(charge){ if(!fartNodes) return; try{ const t=actx.currentTime;
+  fartNodes.o.frequency.setTargetAtTime(72+charge*30, t, 0.12); fartNodes.lfo.frequency.setTargetAtTime(11+charge*4, t, 0.1);
+  fartNodes.g.gain.setTargetAtTime(0.13+charge*0.018, t, 0.1); }catch(e){} }
+function stopFart(){ if(!fartNodes) return; try{ const t=actx.currentTime, g=fartNodes.g.gain;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value,t); g.linearRampToValueAtTime(0.0001,t+0.1);
+  fartNodes.o.stop(t+0.12); fartNodes.lfo.stop(t+0.12); }catch(e){} fartNodes=null; }
+// water splash for peeing
+let _noise=null;
+function noiseBuffer(a){ if(_noise) return _noise; const len=Math.floor(a.sampleRate*0.4); const b=a.createBuffer(1,len,a.sampleRate); const d=b.getChannelData(0); for(let i=0;i<len;i++) d[i]=Math.random()*2-1; _noise=b; return _noise; }
+function splash(){ if(muted) return; try{ const a=AC();
+  const src=a.createBufferSource(); src.buffer=noiseBuffer(a);
+  const f=a.createBiquadFilter(); f.type='bandpass'; f.Q.value=0.8;
+  const g=a.createGain(); const t=a.currentTime;
+  f.frequency.setValueAtTime(1700,t); f.frequency.exponentialRampToValueAtTime(450,t+0.3);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.16,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.36);
+  src.connect(f); f.connect(g); g.connect(a.destination); src.start(t); src.stop(t+0.42); }catch(e){} }
 const sfx={
   step:()=>{ // "taka": a light double paw-tap on the floor
     beep(660+Math.random()*40,0.025,'square',0.05,520);
@@ -490,8 +533,8 @@ const sfx={
   no:()=>beep(160,0.12,'sawtooth',0.08,110),
   unlock:()=>{beep(523,0.1,'sine',0.12);setTimeout(()=>beep(784,0.16,'sine',0.12),90);},
   win:()=>[523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>beep(f,0.2,'triangle',0.12),i*130)),
-  pee:()=>[880,760,660,560,500].forEach((f,i)=>setTimeout(()=>beep(f,0.06,'sine',0.05),i*55)),
-  poop:()=>{ beep(150,0.14,'sawtooth',0.1,72); setTimeout(()=>beep(95,0.12,'sine',0.09,60),70); },
+  jump:()=>beep(280,0.09,'sine',0.06,540),
+  plop:()=>{ beep(170,0.1,'sine',0.09,80); setTimeout(()=>beep(110,0.13,'sine',0.07,65),55); },
 };
 function toggleMute(){ muted=!muted; document.getElementById('muteBtn').textContent=muted?'🔇':'🔊'; }
 document.getElementById('muteBtn').onclick=toggleMute;
@@ -518,14 +561,19 @@ function frame(){
     if(keys['ArrowUp']) pitch+=LOOK_KEY*dt;
     if(keys['ArrowDown']) pitch-=LOOK_KEY*dt;
     const lim=Math.PI/2-0.05; pitch=Math.max(-lim,Math.min(lim,pitch));
-    // move (WASD)
+    // move (WASD) — locked while squatting to poop
     let fIn=(keys['KeyW']?1:0)-(keys['KeyS']?1:0), rIn=(keys['KeyD']?1:0)-(keys['KeyA']?1:0);
+    if(pooping){ fIn=0; rIn=0; }
     const fx=-Math.sin(yaw),fz=-Math.cos(yaw), rx=Math.cos(yaw),rz=-Math.sin(yaw);
     let wx=fx*fIn+rx*rIn, wz=fz*fIn+rz*rIn; const wl=Math.hypot(wx,wz);
     if(wl>1e-6){ wx/=wl; wz/=wl; vel.x+=wx*ACCEL*dt; vel.z+=wz*ACCEL*dt;
       const sp=Math.hypot(vel.x,vel.z); if(sp>MAX_SPEED){vel.x=vel.x/sp*MAX_SPEED;vel.z=vel.z/sp*MAX_SPEED;}
     } else { const damp=Math.max(0,1-FRICTION*dt); vel.x*=damp; vel.z*=damp; }
     moveWithCollision(dt);
+    // jump / gravity
+    const wasAir=py>0.001; pvy-=14*dt; py+=pvy*dt; if(py<=0){ py=0; pvy=0; if(wasAir) sfx.step(); }
+    // poop charging: pile + fart keep growing while Q is held
+    if(pooping){ poopCharge=Math.min(POOP_MAX, poopCharge+dt*POOP_RATE); if(poopMesh) poopMesh.scale.setScalar(poopCharge*0.4); squat=Math.max(squat,0.7); modFart(poopCharge); }
     // socks pickup
     for(const s of sockObjs){ if(s.got)continue; if(Math.hypot(player.x-s.x,player.z-s.z)<0.9){ s.got=true; s.grp.visible=false; state.socks++; sfx.click(); flash('Got a sock! 🧦'); updateHUD(); } }
     // footstep sfx tied to speed
@@ -542,7 +590,7 @@ function frame(){
   for(const m of messMeshes){ if(m.userData.s<1){ m.userData.s=Math.min(1,m.userData.s+0.16); m.scale.setScalar(m.userData.s); } }
 
   // camera transform
-  camera.position.set(player.x, EYE - squat*0.32 + (started?Math.sin(stepPhase*Math.PI*2)*0.012*Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED):0), player.z);
+  camera.position.set(player.x, EYE + py - squat*0.32 + (started?Math.sin(stepPhase*Math.PI*2)*0.012*Math.min(1,Math.hypot(vel.x,vel.z)/MAX_SPEED):0), player.z);
   camera.quaternion.setFromEuler(new THREE.Euler(pitch + squat*0.4, yaw, 0,'YXZ'));
 
   // ears head-bob
@@ -579,6 +627,7 @@ frame();
 // ============================================================ headless test hooks
 window.__game={ THREE, scene, camera, renderer, player, get yaw(){return yaw;}, set yaw(v){yaw=v;}, get pitch(){return pitch;}, set pitch(v){pitch=v;},
   vel, crate, crateMesh, WORLD, colliders, switchObjs, state, evalGate, refreshNearest, tryInteract, triggerWin,
+  jump, startPoop, finishPoop, leaveMess, get py(){return py;}, get pvy(){return pvy;}, get pooping(){return pooping;}, get poopCharge(){return poopCharge;},
   flipAllSwitches:()=>{switchObjs.forEach(s=>{s.on=true;s.lever&&s.lever.material.color.set(0x33cc55);});updateHUD();},
   setStarted:(v)=>{started=v;}, get started(){return started;}, get nearest(){return nearest;} };
 </script>

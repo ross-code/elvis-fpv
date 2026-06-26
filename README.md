@@ -13,10 +13,11 @@ Open `index.html` in a modern browser, or play the hosted version (link in the r
 | Action | Keys |
 | --- | --- |
 | Move | `W` `A` `S` `D` or arrow keys |
+| Jump | `Space` |
 | Look | Mouse (click to capture) |
 | Interact | `E` |
-| Poop | `Q` |
-| Pee | `F` |
+| Poop | hold `Q` (the longer you hold, the bigger the poop and the longer the fart) |
+| Pee | `F` (splash) |
 | Mute | `M` |
 
 ## Story
